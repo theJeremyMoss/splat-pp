@@ -1,4 +1,28 @@
 #!/usr/bin/env python3
+"""
+Img2Splat - Convert Images to Splatoon 3 Post Drawing Macros
+
+This script converts black and white images to NXBT controller macros for drawing
+pixel art in Splatoon 3's post creation feature. It includes multiple drawing modes
+for optimized performance and a simulator to preview results without a Switch.
+
+Usage:
+    python img2splat.py <input_image> [output_macro.txt] [options]
+
+Options:
+    --mode MODE          Drawing mode: typewriter, snake, or smart (default: smart)
+    --test-pattern PAT   Generate a test pattern: circle, square, or lines
+    --wait-time FLOAT    Time to wait between commands in seconds (default: 0.05)
+    --press-time FLOAT   Time to hold button presses in seconds (default: 0.1)
+    --debug              Print additional debug information
+    --simulate           Simulate macro execution and save preview image
+
+Drawing Modes:
+    typewriter - Original mode, processes image left-to-right, line by line
+    snake      - Alternates between left-to-right and right-to-left drawing
+    smart      - Optimized path finding with efficient pixel run detection
+"""
+
 import sys
 import os
 import argparse
@@ -6,6 +30,7 @@ from PIL import Image
 import numpy as np
 from enum import Enum
 import math
+import time
 
 class DrawingMode(Enum):
     TYPEWRITER = "typewriter"  # Original mode - left to right, return to start on each row
@@ -135,6 +160,10 @@ class Img2Splat:
                 
             commands.extend(path_commands)
             
+            # Add MINUS press at the end to save the artwork
+            commands.append(f"MINUS {self.press_time}s")
+            commands.append(f"{self.wait_time}s")
+            
             # Write to file
             with open(output_path, 'w') as f:
                 for cmd in commands:
@@ -233,22 +262,47 @@ class Img2Splat:
             commands.extend(y_movement)
             current_y = y
             
+            # Find min and max X for this row to avoid unnecessary movement
+            min_x, max_x = self._get_row_bounds(pixels, y, width)
+            
+            if min_x is None:  # No black pixels in this row
+                continue
+                
             # Process this row based on the current direction
             if direction == 1:  # Left to right
-                x_range = range(min(width, self.max_width))
-            else:  # Right to left
-                x_range = range(min(width, self.max_width) - 1, -1, -1)
-            
-            for x in x_range:
-                # Move to the correct X position
-                x_movement = self._move_to_x(current_x, x)
+                # Move to min_x if not already there
+                x_movement = self._move_to_x(current_x, min_x)
                 commands.extend(x_movement)
-                current_x = x
+                current_x = min_x
                 
-                # Draw black pixels
-                if pixels[y, x] == 0:  # Black pixel
-                    commands.append(f"A {self.press_time}s")
-                    commands.append(f"{self.wait_time}s")
+                for x in range(min_x, max_x + 1):
+                    # Draw black pixels
+                    if pixels[y, x] == 0:  # Black pixel
+                        commands.append(f"A {self.press_time}s")
+                        commands.append(f"{self.wait_time}s")
+                    
+                    # Move right if not at the end
+                    if x < max_x:
+                        commands.append(f"DPAD_RIGHT {self.press_time}s")
+                        commands.append(f"{self.wait_time}s")
+                        current_x += 1
+            else:  # Right to left
+                # Move to max_x if not already there
+                x_movement = self._move_to_x(current_x, max_x)
+                commands.extend(x_movement)
+                current_x = max_x
+                
+                for x in range(max_x, min_x - 1, -1):
+                    # Draw black pixels
+                    if pixels[y, x] == 0:  # Black pixel
+                        commands.append(f"A {self.press_time}s")
+                        commands.append(f"{self.wait_time}s")
+                    
+                    # Move left if not at the start
+                    if x > min_x:
+                        commands.append(f"DPAD_LEFT {self.press_time}s")
+                        commands.append(f"{self.wait_time}s")
+                        current_x -= 1
             
             # Flip direction for the next row
             direction *= -1
@@ -308,16 +362,14 @@ class Img2Splat:
                     commands.append(f"{self.wait_time}s")
                 else:
                     # For a run, press A and hold while moving right
-                    commands.append("A")  # Press A without releasing
-                    
-                    # Move right to cover the run
-                    for _ in range(end_x - start_x):
-                        commands.append(f"DPAD_RIGHT {self.press_time}s")
-                        commands.append(f"{self.wait_time}s")
-                    
-                    # Release A
+                    # Fix: Always include a duration for button presses
+                    commands.append(f"A {self.press_time}s")  # Press A with duration
                     commands.append(f"{self.wait_time}s")
-                    commands.append("A 0s")  # Release A
+                    
+                    # Move right while holding A for each pixel after the first
+                    for _ in range(start_x + 1, end_x + 1):
+                        commands.append(f"DPAD_RIGHT+A {self.press_time}s")  # Hold both buttons
+                        commands.append(f"{self.wait_time}s")
                     
                     current_x = end_x
         
@@ -353,6 +405,19 @@ class Img2Splat:
         # Add the last run
         runs.append((start_x, prev_x))
         return runs
+    
+    def _get_row_bounds(self, pixels, y, width):
+        """Find the leftmost and rightmost black pixels in a row"""
+        min_x = None
+        max_x = None
+        
+        for x in range(min(width, self.max_width)):
+            if pixels[y, x] == 0:  # Black pixel
+                if min_x is None:
+                    min_x = x
+                max_x = x
+        
+        return min_x, max_x
     
     def _move_to_y(self, current_y, target_y):
         """Generate commands to move from current Y to target Y"""
@@ -425,6 +490,107 @@ class Img2Splat:
         
         print(f"Non-empty rows: {non_empty_rows}/{min(height, self.max_height)}")
 
+    def simulate_macro(self, image_path, output_path=None):
+        """
+        Simulate a macro execution by creating a virtual canvas and showing the result
+        
+        Args:
+            image_path: Path to the input image
+            output_path: Path to save the macro file
+        """
+        # Create a blank canvas (all white)
+        canvas = np.ones((self.max_height, self.max_width), dtype=np.uint8)
+        
+        # Generate the macro but don't write it to file yet
+        img = Image.open(image_path).convert('1')
+        width, height = img.size
+        pixels = np.array(img)
+        
+        # Generate commands according to the selected strategy
+        if self.drawing_mode == DrawingMode.TYPEWRITER:
+            commands = self._generate_typewriter_path(pixels, width, height)
+        elif self.drawing_mode == DrawingMode.SNAKE:
+            commands = self._generate_snake_path(pixels, width, height)
+        elif self.drawing_mode == DrawingMode.SMART:
+            commands = self._generate_smart_path(pixels, width, height)
+        
+        # Simulate drawing on the canvas
+        print("Simulating macro execution...")
+        sim_canvas, success = self._simulate_drawing(commands)
+        
+        if not success:
+            print("Simulation failed! There may be issues with the macro.")
+            return False
+        
+        # Compare with original image
+        original_count = np.sum(pixels == 0)
+        drawn_count = np.sum(sim_canvas == 0)
+        accuracy = drawn_count / original_count if original_count > 0 else 0
+        
+        print(f"Simulation complete!")
+        print(f"Original black pixels: {original_count}")
+        print(f"Drawn black pixels: {drawn_count}")
+        print(f"Accuracy: {accuracy:.2%}")
+        
+        # Save the simulated result
+        sim_img = Image.fromarray(sim_canvas * 255)
+        sim_output = f"{os.path.splitext(image_path)[0]}_simulated.png"
+        sim_img.save(sim_output)
+        print(f"Simulated result saved to: {sim_output}")
+        
+        # Now generate and save the actual macro file
+        if output_path:
+            self.image_to_macro(image_path, output_path)
+        
+        return True
+    
+    def _simulate_drawing(self, commands):
+        """
+        Simulate drawing commands on a virtual canvas
+        
+        Args:
+            commands: List of macro commands
+            
+        Returns:
+            Tuple of (canvas, success)
+        """
+        canvas = np.ones((self.max_height, self.max_width), dtype=np.uint8)
+        current_x, current_y = 0, 0
+        a_pressed = False
+        success = True
+        
+        for cmd in commands:
+            parts = cmd.split()
+            if not parts:
+                continue
+                
+            # Parse command
+            if 'DPAD_RIGHT' in parts[0]:
+                if '+A' in parts[0]:  # Combined button press
+                    current_x = min(current_x + 1, self.max_width - 1)
+                    canvas[current_y, current_x] = 0  # Draw black pixel
+                else:
+                    current_x = min(current_x + 1, self.max_width - 1)
+                
+            elif 'DPAD_LEFT' in parts[0]:
+                current_x = max(current_x - 1, 0)
+                
+            elif 'DPAD_DOWN' in parts[0]:
+                current_y = min(current_y + 1, self.max_height - 1)
+                
+            elif 'DPAD_UP' in parts[0]:
+                current_y = max(current_y - 1, 0)
+                
+            elif parts[0] == 'A':
+                if len(parts) == 1:  # This would be an error
+                    print("Error: 'A' command without duration")
+                    success = False
+                else:
+                    # Draw a pixel
+                    canvas[current_y, current_x] = 0
+        
+        return canvas, success
+
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
@@ -451,6 +617,9 @@ def parse_args():
                       
     parser.add_argument('--debug', action='store_true',
                       help='Print debug information')
+                      
+    parser.add_argument('--simulate', action='store_true',
+                      help='Simulate the macro execution and show the result')
     
     return parser.parse_args()
 
@@ -466,16 +635,22 @@ if __name__ == "__main__":
         debug=args.debug
     )
     
-    # Generate a test pattern or process an input image
+    # Generate a test pattern, simulate, or process an input image
     if args.test_pattern:
         converter.generate_test_pattern(args.test_pattern, args.output_macro)
     elif args.input_image:
-        converter.image_to_macro(args.input_image, args.output_macro)
+        if args.simulate:
+            converter.simulate_macro(args.input_image, args.output_macro)
+        else:
+            converter.image_to_macro(args.input_image, args.output_macro)
     else:
         # Default to a sample image path
         default_path = "img/image.png"
         if os.path.exists(default_path):
-            converter.image_to_macro(default_path)
+            if args.simulate:
+                converter.simulate_macro(default_path)
+            else:
+                converter.image_to_macro(default_path)
         else:
             print(f"No input image specified and default '{default_path}' not found.")
             print("Usage: python img2splat.py [input_image] [output_macro.txt] [options]")
