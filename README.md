@@ -26,10 +26,28 @@ sudo /venv/bin/nxbt demo
   Finished!
 It should run through the settings menu then complete with a "Finished!" message.
 
-# Macro Maker
+# Image Converter: splatvert.py
+Splatvert - Image to Black & White Pixel Art Converter
+
+This script converts images to 320x120 black and white pixel art using
+Floyd-Steinberg dithering. It handles transparency by converting transparent
+pixels to white and includes options for image preprocessing.
+
+Usage:
+    python splatvert.py <input_image> [options]
+
+Options:
+    --output-path PATH    Output file path (default: input_name_converted.png)
+    --size WxH            Output size in pixels (default: 320x120)
+    --contrast FLOAT      Contrast adjustment factor (default: 1.2)
+    --brightness FLOAT    Brightness adjustment factor (default: 1.0)
+    --sharpness FLOAT     Sharpness adjustment factor (default: 1.3)
+
+# Macro Maker: img2splat.py
+
 pip install pillow numpy
 
-##Usage: 
+## Usage: 
 `python img2splat.py [input_image] [output_macro.txt] [--mode=snake|smart|typewriter] [--test-pattern=circle|square|lines] [--wait-time=0.05] [--debug]`
 
 ```
@@ -41,8 +59,16 @@ python img2splat.py --test-pattern circle output_macro.txt
 
 # Use snake pattern with custom timing <br>
 python img2splat.py my_image.png output.txt --mode snake --wait-time 0.03
-```
 
+# Run simulation before creating the macro
+python img2splat.py my_image.png --simulate
+
+# Generate a test pattern and simulate it
+python img2splat.py --test-pattern circle --simulate
+
+# Use snake pattern with custom timing
+python img2splat.py my_image.png output.txt --mode snake --wait-time 0.03
+```
 
 # Create post
 Go to the mailbox in Splatoon 3

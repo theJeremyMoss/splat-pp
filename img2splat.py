@@ -1,28 +1,4 @@
 #!/usr/bin/env python3
-"""
-Img2Splat - Convert Images to Splatoon 3 Post Drawing Macros
-
-This script converts black and white images to NXBT controller macros for drawing
-pixel art in Splatoon 3's post creation feature. It includes multiple drawing modes
-for optimized performance and a simulator to preview results without a Switch.
-
-Usage:
-    python img2splat.py <input_image> [output_macro.txt] [options]
-
-Options:
-    --mode MODE          Drawing mode: typewriter, snake, or smart (default: smart)
-    --test-pattern PAT   Generate a test pattern: circle, square, or lines
-    --wait-time FLOAT    Time to wait between commands in seconds (default: 0.05)
-    --press-time FLOAT   Time to hold button presses in seconds (default: 0.1)
-    --debug              Print additional debug information
-    --simulate           Simulate macro execution and save preview image
-
-Drawing Modes:
-    typewriter - Original mode, processes image left-to-right, line by line
-    snake      - Alternates between left-to-right and right-to-left drawing
-    smart      - Optimized path finding with efficient pixel run detection
-"""
-
 import sys
 import os
 import argparse
